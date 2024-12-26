@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Launch a Ubuntu instance in Ireland with Jenkins pre-installed and an Elastic IP attached.
+
+Parameters:
+  InstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+    ConstraintDescription: Must be a valid EC2 instance type.
+
+Resources:
+  # Security Group
+  JenkinsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH and Jenkins access
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0  # SSH Access
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0  # Jenkins Web Interface
+      VpcId: vpc-0861cf17253050a5d  # Ireland VPC ID
+
+  # Elastic IP
+  JenkinsElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  # EC2 Instance
+  JenkinsInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      KeyName: IRE KEY  # KeyPair Name for Ireland region
+      ImageId: ami-0d64bb532e0502c46  # Ireland Ubuntu AMI ID
+      SubnetId: subnet-0a4c44d01b3fc6dd9  # Ireland Subnet ID
+      SecurityGroupIds:
+        - !Ref JenkinsSecurityGroup
+      Tags:
+        - Key: Name
+          Value: JenkinsInstance
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          apt-get update -y
+          apt-get install openjdk-11-jdk -y
+          apt-get install maven -y
+          wget -q -O - https://pkg.jenkins.io/debian/jenkins.io-2023.key | apt-key add -
+          sh -c 'echo deb http://pkg.jenkins.io/debian binary/ > /etc/apt/sources.list.d/jenkins.list'
+          apt-get update -y
+          apt-get install jenkins -y
+          systemctl start jenkins
+          systemctl enable jenkins
+
+  # Associate EIP with the Instance
+  EIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref JenkinsInstance
+      EIP: !Ref JenkinsElasticIP
+
+Outputs:
+  InstancePublicIP:
+    Description: Public IP of the Jenkins instance
+    Value: !Ref JenkinsElasticIP
+  InstanceID:
+    Description: Instance ID of the Jenkins instance
+    Value: !Ref JenkinsInstance
+  JenkinsURL:
+    Description: Access Jenkins at this URL
+    Value: !Sub "http://${JenkinsElasticIP}:8080/"
